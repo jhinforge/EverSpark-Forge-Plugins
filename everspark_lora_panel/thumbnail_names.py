@@ -17,6 +17,21 @@ def normalize_vault_path(path: str) -> str:
     return str(path or "").replace("\\", "/")
 
 
+def legacy_stem(filename: str) -> str:
+    stem = re.sub(r"\.md$", "", filename, flags=re.I)
+    return re.sub(r'[\\/:*?"<>|#^\[\]]+', "_", stem)[:80] or "lora"
+
+
+def vault_thumb_name(md_rel_path: str) -> str:
+    path = normalize_vault_path(md_rel_path)
+    # Obsidian's JavaScript charCodeAt and slice operate on UTF-16 code units.
+    utf16 = path.encode("utf-16-le", errors="surrogatepass")
+    units = "".join(chr(utf16[i] | utf16[i + 1] << 8) for i in range(0, len(utf16), 2))
+    stem = legacy_stem(units.rsplit("/", 1)[-1])
+    stem = stem.encode("utf-16-le", errors="surrogatepass").decode("utf-16-le", errors="replace")
+    return f"{stem}_{fnv1a_32(units)}.jpg"
+
+
 def thumb_cache_name_from_md_path(md_rel_path: str) -> str:
     """
     缓存协议固定函数。
@@ -36,7 +51,4 @@ def thumb_cache_name_from_md_path(md_rel_path: str) -> str:
     if not source_path:
         return ""
 
-    stem = Path(source_path).name
-    stem = re.sub(r"\.md$", "", stem, flags=re.I)
-    safe_stem = re.sub(r'[\\/:*?"<>|#^\[\]]+', "_", stem)[:80] or "lora"
-    return f"{safe_stem}_{fnv1a_32(source_path)}.jpg"
+    return f"{legacy_stem(Path(source_path).name)}_{fnv1a_32(source_path)}.jpg"

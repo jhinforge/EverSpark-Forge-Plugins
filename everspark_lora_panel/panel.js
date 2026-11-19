@@ -11,6 +11,23 @@
   const yes = (field) => String(field).toLowerCase() === "true";
   const picture = (row, kind) => "/api/plugins/lora/media?" + new URLSearchParams({id: row.id, kind});
 
+  function attachPicture(parent, row, preferred, description) {
+    const alternatives = (preferred === "preview" ? ["preview", "thumbnail"] : ["thumbnail", "preview"])
+      .filter((kind) => row[kind]);
+    if (!alternatives.length) return;
+    const image = create("img");
+    image.alt = description;
+    if (preferred === "thumbnail") image.loading = "lazy";
+    function loadNext() {
+      const kind = alternatives.shift();
+      if (kind) image.src = picture(row, kind);
+      else image.remove();
+    }
+    image.onerror = loadNext;
+    parent.append(image);
+    loadNext();
+  }
+
   window.EverSparkLoraCatalog = {
     async mount(root, api) {
       const {items} = await api("/api/plugins/lora/catalog");
@@ -69,13 +86,7 @@
           ["model_support", words("Base model", "支持模型")], ["effect", words("Effect", "效果")], ["notes", words("Notes", "备注")],
         ]) if (value(row[key])) fields.append(create("dt", label), create("dd", value(row[key])));
         detail.replaceChildren(heading, fields);
-        if (row.preview || row.thumbnail) {
-          const image = create("img");
-          image.alt = value(row.lora_name);
-          image.src = picture(row, row.preview ? "preview" : "thumbnail");
-          image.onerror = () => image.remove();
-          detail.append(image);
-        }
+        attachPicture(detail, row, "preview", value(row.lora_name));
         detail.showModal();
       }
 
@@ -94,14 +105,7 @@
         for (const row of filtered.slice((page - 1) * size, page * size)) {
           const line = tbody.insertRow();
           const preview = line.insertCell();
-          if (row.thumbnail || row.preview) {
-            const image = create("img");
-            image.loading = "lazy";
-            image.alt = "";
-            image.src = picture(row, row.thumbnail ? "thumbnail" : "preview");
-            image.onerror = () => image.remove();
-            preview.append(image);
-          }
+          attachPicture(preview, row, "thumbnail", "");
           const open = create("button", value(row.lora_name), "ghost-button");
           open.onclick = () => show(row);
           line.insertCell().append(open);

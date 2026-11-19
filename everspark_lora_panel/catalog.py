@@ -3,11 +3,13 @@
 import json
 import re
 import shlex
+from collections import Counter, defaultdict
+from functools import cached_property
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
-from .thumbnail_names import thumb_cache_name_from_md_path
+from .thumbnail_names import legacy_stem, normalize_vault_path, thumb_cache_name_from_md_path, vault_thumb_name
 
 IMAGE_TYPES = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
@@ -88,43 +90,127 @@ def read_note(path):
     return metadata(path.read_text(encoding="utf-8-sig"))
 
 
-def preview_path(config, path, body):
-    root = config["previews_dir"]
-    vault = config.get("vault_root")
-    for match in EMBED.finditer(body):
-        link = (match[1] or match[2]).split("|", 1)[0].strip().strip("<>")
-        url = urlsplit(link)
+class MediaLookup:
+    def __init__(self, config):
+        self.notes = config["notes_dir"]
+        self.previews = config["previews_dir"]
+        self.thumbnails = config["thumbnails_dir"]
+        self.vault = config.get("vault_root")
+
+    @staticmethod
+    def _find(candidates, root):
+        for candidate in candidates:
+            if candidate.suffix.lower() in IMAGE_TYPES:
+                image = inside(candidate, root)
+                if image and image.is_file():
+                    return image
+        return None
+
+    @cached_property
+    def preview_names(self):
+        names = defaultdict(list)
+        for path in self.previews.rglob("*"):
+            if path.suffix.lower() in IMAGE_TYPES and path.is_file():
+                names[path.name.casefold()].append(path)
+        return names
+
+    @cached_property
+    def thumbnail_names(self):
+        names = defaultdict(list)
+        for path in self.thumbnails.rglob("*"):
+            match = re.fullmatch(r"(.+)_[0-9a-f]{8}\.jpg", path.name, re.I)
+            if match and path.is_file():
+                names[match[1].casefold()].append(path)
+        return names
+
+    def _linked_preview(self, path, link, wiki):
+        raw = normalize_vault_path(link)
+        if re.match(r"^[A-Za-z]:/", raw):
+            return self._find((Path(raw),), self.previews)
+
+        try:
+            url = urlsplit(raw)
+        except ValueError:
+            return None
         if url.scheme == "file":
             prefix = f"//{url.netloc}" if url.netloc and url.netloc != "localhost" else ""
-            candidates = [Path(url2pathname(prefix + url.path))]
-        elif not url.scheme and not url.netloc:
-            relative = unquote(url.path)
-            candidates = [path.parent / relative, root / relative]
-            if vault and (match[1] or not relative.startswith(("./", "../"))):
-                candidates.insert(0, vault / relative)
-            if "/" not in relative and Path(relative).suffix.lower() in IMAGE_TYPES:
-                candidates.extend(sorted(root.rglob(relative)))
-        else:
-            continue
-        for candidate in candidates:
-            if candidate.suffix.lower() not in IMAGE_TYPES:
+            return self._find((Path(url2pathname(prefix + url.path)),), self.previews)
+        if url.scheme or url.netloc:
+            return None
+
+        # Wiki links may contain literal #, ? or percent characters in a filename.
+        names = (raw, unquote(raw), unquote(url.path)) if wiki else (unquote(url.path),)
+        for name in dict.fromkeys(names):
+            if Path(name).suffix.lower() not in IMAGE_TYPES:
                 continue
-            image = inside(candidate, root)
-            if image and image.is_file():
+            name = name.lstrip("/")
+            candidates = [path.parent / name, self.previews / name]
+            if self.vault and (wiki or not name.startswith(("./", "../"))):
+                candidates.insert(0, self.vault / name)
+            parts = Path(name).parts
+            candidates.extend(self.previews.joinpath(*parts[index:]) for index in range(1, len(parts)) if parts[index] != "..")
+            image = self._find(candidates, self.previews)
+            if image:
                 return image
-    return None
+            matches = self.preview_names[Path(name).name.casefold()]
+            if len(matches) == 1:
+                return self._find(matches, self.previews)
+        return None
 
+    def preview(self, path, body):
+        for match in EMBED.finditer(body):
+            wiki = match[1] is not None
+            link = (match[1].split("|", 1)[0] if wiki else match[2]).strip().strip("<>")
+            result = self._linked_preview(path, link, wiki)
+            if result:
+                return result
 
-def thumbnail_path(config, path):
-    root = config["thumbnails_dir"]
-    vault = config.get("vault_root")
-    relative = path.relative_to(vault) if vault and path.is_relative_to(vault) else path.relative_to(config["notes_dir"])
-    thumbnail = inside(root / thumb_cache_name_from_md_path(relative.as_posix()), root)
-    return thumbnail if thumbnail and thumbnail.is_file() else None
+        # Older notes can omit the embed. The importer numbers originals from 001.
+        if not EMBED.search(body):
+            stem = path.stem.casefold()
+            matches = [
+                image for suffix in IMAGE_TYPES for separator in ("", ".")
+                for image in self.preview_names[f"{stem}{separator}001{suffix}"]
+            ]
+            if len(matches) == 1:
+                return self._find(matches, self.previews)
+        return None
+
+    @cached_property
+    def note_stems(self):
+        return Counter(legacy_stem(path.name).casefold() for path in self.notes.rglob("*.md"))
+
+    def thumbnail(self, path):
+        # Exact hashes take precedence over a filename-only match.
+        roots = dict.fromkeys((self.vault, self.notes, self.notes.parent))
+        names = []
+        for root in roots:
+            if root is not None and path.is_relative_to(root):
+                relative = path.relative_to(root).as_posix()
+                names.extend((thumb_cache_name_from_md_path(relative), vault_thumb_name(relative)))
+        for name in dict.fromkeys(names):
+            match = self._find((
+                self.thumbnails / name,
+                self.thumbnails / "lora_thumb_cache" / name,
+            ), self.thumbnails)
+            if match:
+                return match
+
+        legacy = legacy_stem(path.name).casefold()
+        obsidian = vault_thumb_name(path.name).rsplit("_", 1)[0].casefold()
+        matches = [image for stem in dict.fromkeys((legacy, obsidian)) for image in self.thumbnail_names[stem]]
+        for name in names:
+            matching = [image for image in matches if image.name.casefold() == name.casefold()]
+            if len(matching) == 1:
+                return self._find(matching, self.thumbnails)
+        if len(matches) == 1 and self.note_stems[legacy] == 1:
+            return self._find(matches, self.thumbnails)
+        return None
 
 
 def rows(config):
     root = config["notes_dir"]
+    lookup = MediaLookup(config)
     for path in sorted(root.rglob("*.md")):
         try:
             item = inside(path, root)
@@ -137,8 +223,8 @@ def rows(config):
             "id": path.relative_to(root).as_posix(),
             "title": path.stem,
             **{key: fields.get(key, "") for key in FIELDS},
-            "thumbnail": bool(thumbnail_path(config, item)),
-            "preview": bool(EMBED.search(body)),
+            "thumbnail": bool(lookup.thumbnail(item)),
+            "preview": bool(lookup.preview(item, body)),
         }
 
 
@@ -149,7 +235,8 @@ def media(config, note_id, kind):
     fields, body = read_note(path)
     if not fields.get("lora_name"):
         return None
-    image = thumbnail_path(config, path) if kind == "thumbnail" else preview_path(config, path, body)
+    lookup = MediaLookup(config)
+    image = lookup.thumbnail(path) if kind == "thumbnail" else lookup.preview(path, body)
     if not image or image.suffix.lower() not in IMAGE_TYPES:
         return None
     return image, IMAGE_TYPES[image.suffix.lower()]
