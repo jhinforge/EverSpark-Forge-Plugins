@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from .config import VAULT_ROOT, LORA_MD_ROOT, PENDING_JSON_PATH
+from .config import LORA_MD_ROOT, PENDING_JSON_PATH, SOURCE_IMAGE_DIR, notes_relative_path
 from .common import ask_confirm, log, UserCancelled
 from .checks import (
     early_md_duplicate_check,
@@ -69,7 +69,7 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
 
     注意：
     - 图片不从 payload 传入
-    - 默认使用 D:\\logtemp 当前剩余全部图片
+    - 使用配置的临时预览图目录下剩余的图片
     - 用户应在运行 importer 前手动删掉不想入库的图片
     """
     title = payload["title"]
@@ -82,7 +82,7 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
 
     warn_similar_md_names(title)
 
-    log("INFO", "执行 D:\\logtemp 预览图前置检查...")
+    log("INFO", f"检查临时预览图：{SOURCE_IMAGE_DIR}")
     ensure_source_images_exist_early()
 
     selected_images = get_all_source_images()
@@ -94,7 +94,7 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
     md_dir.mkdir(parents=True, exist_ok=True)
 
     md_path = md_dir / f"{title}.md"
-    md_rel_path = md_path.relative_to(VAULT_ROOT).as_posix()
+    md_rel_path = notes_relative_path(md_path)
 
     planned_dsts = plan_asset_dsts(title, selected_images, target_bucket)
 
@@ -134,7 +134,7 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
             planned_dsts,
         )
 
-        asset_links = make_asset_links(committed_files)
+        asset_links = make_asset_links(committed_files, md_path)
 
         log("INFO", "写入 md 文件...")
         md_text = build_md(title, fields, asset_links)
@@ -171,7 +171,7 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
             if cleanup_pending:
                 cleanup_pending_json()
         else:
-            log("WARN", "入库未完整成功，已保留 D:\\logtemp 源图片，避免误删")
+            log("WARN", f"入库未完整成功，已保留源图片：{SOURCE_IMAGE_DIR}")
 
     print("\n[OK] 入库完成")
     print(f"[OK] md 文件：{md_path}")

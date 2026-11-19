@@ -11,7 +11,7 @@ from lora_vault_tools.common import UserCancelled, ask, log
 
 from lora_vault_tools.config import (
     PENDING_JSON_PATH,
-    LOGTEMP_DIR,
+    SOURCE_IMAGE_DIR,
     PREVIEW_REVIEW_THRESHOLD,
 )
 
@@ -52,7 +52,7 @@ def review_preview_images_if_needed(pending: dict) -> dict:
 
     image_exts = {".jpg", ".jpeg", ".png", ".webp"}
     images = [
-        p for p in Path(LOGTEMP_DIR).iterdir()
+        p for p in Path(SOURCE_IMAGE_DIR).iterdir()
         if p.is_file() and p.suffix.lower() in image_exts
     ]
 
@@ -63,14 +63,15 @@ def review_preview_images_if_needed(pending: dict) -> dict:
         return pending
 
     log("WARN", f"检测到 {len(images)} 张预览图，超过 {PREVIEW_REVIEW_THRESHOLD} 张")
-    log("WARN", f"即将打开目录，请删除不想入库的图片：{LOGTEMP_DIR}")
+    log("WARN", f"即将打开目录，请删除不想入库的图片：{SOURCE_IMAGE_DIR}")
 
-    os.startfile(LOGTEMP_DIR)
+    if hasattr(os, "startfile"):
+        os.startfile(SOURCE_IMAGE_DIR)
 
     input("\n请筛选预览图：删除不想入库的图片后，按 Enter 继续...")
 
     remaining_images = [
-        p.name for p in Path(LOGTEMP_DIR).iterdir()
+        p.name for p in Path(SOURCE_IMAGE_DIR).iterdir()
         if p.is_file() and p.suffix.lower() in image_exts
     ]
 

@@ -20,3 +20,6 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Local plugin directory settings
+/lora-config.json

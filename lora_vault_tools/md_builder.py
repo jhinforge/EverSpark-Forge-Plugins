@@ -12,7 +12,7 @@ def yaml_block(value: str) -> str:
 
 
 def build_md(title: str, fields: dict, asset_links: list[str]) -> str:
-    image_block = "\n".join(f"![[{link}]]" for link in asset_links)
+    image_block = "\n".join(asset_links)
 
     return f"""---
 lora_name: {yaml_quote(fields["lora_name"])}

@@ -160,6 +160,7 @@ def write_pending_json(payload: dict):
     if PENDING_JSON_PATH.exists():
         raise RuntimeError(f"pending 文件已存在，停止防止覆盖：{PENDING_JSON_PATH}")
 
+    PENDING_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
     PENDING_JSON_PATH.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",

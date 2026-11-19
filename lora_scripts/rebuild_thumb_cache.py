@@ -1,6 +1,25 @@
-from pathlib import Path
 import re
+import sys
+from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote, urlsplit
+from urllib.request import url2pathname
+
+WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
+
+from lora_vault_tools.config import (
+    ASSET_ROOT,
+    LORA_MD_ROOT,
+    THUMB_CACHE_ROOT,
+    VAULT_ROOT,
+    notes_relative_path,
+)
+from lora_vault_tools.thumbnail import (
+    normalize_vault_path,
+    thumb_cache_name_from_md_path,
+)
 
 try:
     from PIL import Image, ImageOps
@@ -12,7 +31,7 @@ except ImportError:
 # =====================================================
 # LoRA Thumb Cache Rebuilder
 # 功能：
-# 1. 扫描 D:\Vault\LoraVault\lora 下所有 md
+# 1. 扫描配置的模型笔记目录
 # 2. 解析 md 正文里的第一张图片引用
 # 3. 按 DataviewJS 面板 V3.4.2+ 的缓存协议重建缩略图
 # 4. 默认清空旧缓存后重建
@@ -20,16 +39,11 @@ except ImportError:
 # 注意：
 # - 不修改 md
 # - 不修改 Assets 原图
-# - 只处理 temp/lora_thumb_cache
+# - 只处理配置的缩略图目录
 # =====================================================
-
-VAULT_ROOT = Path(r"D:\Vault\LoraVault")
-LORA_MD_ROOT = VAULT_ROOT / "lora"
-THUMB_CACHE_ROOT = VAULT_ROOT / "temp" / "lora_thumb_cache"
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 THUMB_SIZE = (420, 420)
-THUMB_EXT = ".jpg"
 THUMB_FORMAT = "JPEG"
 THUMB_QUALITY = 86
 
@@ -51,49 +65,6 @@ class CacheBuildStats:
 
 def log(level: str, msg: str):
     print(f"[{level}] {msg}")
-
-
-def normalize_vault_path(path: str) -> str:
-    return str(path or "").replace("\\", "/")
-
-
-def fnv1a_32(text: str) -> str:
-    """
-    必须和 DataviewJS 面板里的 fnv1a32() 保持一致。
-    输入：md 的 vault 相对路径，例如：
-    lora/服装/Better_pantyhose.md
-
-    输出：8位十六进制 hash，例如：
-    9a4e1c2f
-    """
-    h = 0x811C9DC5
-    for ch in text:
-        h ^= ord(ch)
-        h = (h * 0x01000193) & 0xFFFFFFFF
-    return f"{h:08x}"
-
-
-def safe_stem(stem: str) -> str:
-    """
-    必须和 DataviewJS 面板里的 safeStem 规则一致：
-    stem.replace(/[\\/:*?"<>|#^\\[\\]]+/g, "_").slice(0, 80) || "lora"
-    """
-    cleaned = re.sub(r'[\\/:*?"<>|#^\[\]]+', "_", stem)
-    cleaned = cleaned[:80]
-    return cleaned or "lora"
-
-
-def thumb_cache_name_from_md_rel(md_rel_path: str) -> str:
-    """
-    当前缓存协议：
-    md 相对路径：lora/服装/Better_pantyhose.md
-    缓存名：Better_pantyhose_<fnv1a32(md路径)>.jpg
-    """
-    md_rel_path = normalize_vault_path(md_rel_path)
-    stem = Path(md_rel_path).name
-    if stem.lower().endswith(".md"):
-        stem = stem[:-3]
-    return f"{safe_stem(stem)}_{fnv1a_32(md_rel_path)}{THUMB_EXT}"
 
 
 def find_first_image_link(md_text: str) -> Optional[str]:
@@ -120,37 +91,28 @@ def find_first_image_link(md_text: str) -> Optional[str]:
 
 
 def resolve_image_path(link: str, md_path: Path) -> Optional[Path]:
-    """
-    尽量模拟 Obsidian 的图片解析：
-    1. 如果 link 是 vault 相对路径，直接找 VAULT_ROOT/link
-    2. 如果 link 是相对 md 所在目录的路径，找 md_dir/link
-    3. 如果只是文件名，在 Assets/Loras 下递归查找
-    """
     link = normalize_vault_path(link).strip()
-    link = link.split("#", 1)[0].split("?", 1)[0]
-    link = link.replace("%20", " ")
+    if link.startswith("file:"):
+        url = urlsplit(link)
+        prefix = f"//{url.netloc}" if url.netloc and url.netloc != "localhost" else ""
+        image = Path(url2pathname(prefix + url.path))
+        return image if image.is_file() else None
 
-    candidates = [
-        VAULT_ROOT / link,
-        md_path.parent / link,
-    ]
+    link = unquote(link.split("#", 1)[0].split("?", 1)[0])
+    image = Path(link)
+    candidates = [md_path.parent / image]
+    if VAULT_ROOT is not None and not link.startswith(("./", "../")):
+        candidates.insert(0, VAULT_ROOT / image)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
 
-    for c in candidates:
-        if c.exists() and c.is_file():
-            return c
-
-    if "/" not in link and "\\" not in link:
-        asset_root = VAULT_ROOT / "Assets" / "Loras"
-        if asset_root.exists():
-            matches = [p for p in asset_root.rglob(link) if p.is_file()]
-            if len(matches) == 1:
-                return matches[0]
-            if len(matches) > 1:
-                log("WARN", f"图片文件名存在多个匹配，使用第一个：{link}")
-                for p in matches:
-                    log("WARN", f"  - {p}")
-                return matches[0]
-
+    if "/" not in link:
+        matches = sorted(p for p in ASSET_ROOT.rglob(link) if p.is_file())
+        if len(matches) > 1:
+            log("WARN", f"图片文件名存在多个匹配，使用第一个：{link}")
+        if matches:
+            return matches[0]
     return None
 
 
@@ -158,7 +120,10 @@ def clear_old_cache(stats: CacheBuildStats):
     if not THUMB_CACHE_ROOT.exists():
         return
 
-    old_files = [p for p in THUMB_CACHE_ROOT.iterdir() if p.is_file()]
+    old_files = [
+        path for path in THUMB_CACHE_ROOT.iterdir()
+        if path.is_file() and re.search(r"_[0-9a-f]{8}\.jpg$", path.name)
+    ]
     for p in old_files:
         try:
             p.unlink()
@@ -216,8 +181,8 @@ def rebuild():
 
     for md_path in md_files:
         try:
-            md_rel = md_path.relative_to(VAULT_ROOT).as_posix()
-            cache_name = thumb_cache_name_from_md_rel(md_rel)
+            md_rel = notes_relative_path(md_path)
+            cache_name = thumb_cache_name_from_md_path(md_rel)
             thumb_path = THUMB_CACHE_ROOT / cache_name
 
             if thumb_path.exists() and not CLEAR_OLD_CACHE:

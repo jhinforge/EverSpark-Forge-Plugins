@@ -1,0 +1,7 @@
+{
+  "notes_dir": "LoraVault/lora",
+  "previews_dir": "LoraVault/Assets/Loras",
+  "thumbnails_dir": "LoraVault/temp/lora_thumb_cache",
+  "temp_dir": "lora-work",
+  "vault_root": "LoraVault"
+}

@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+from urllib.parse import quote
 
 from .config import (
     SOURCE_IMAGE_DIR,
@@ -29,15 +31,15 @@ def ensure_source_images_exist_early():
     if not images:
         raise RuntimeError(
             f"{SOURCE_IMAGE_DIR} 没有找到预览图。\n"
-            "请先把 LoRA 预览图下载到 D:\\logtemp 后再运行脚本。"
+            f"请先把 LoRA 预览图下载到 {SOURCE_IMAGE_DIR} 后再运行脚本。"
         )
 
-    log("OK", f"预览图前置检查通过：D:\\logtemp 当前有 {len(images)} 张图片")
+    log("OK", f"预览图前置检查通过：{SOURCE_IMAGE_DIR} 当前有 {len(images)} 张图片")
 
 
 def get_all_source_images() -> list[Path]:
     """
-    当前 D:\\logtemp 剩余全部图片
+    临时预览图目录中剩余的全部图片
     = 本次正式入库图片
     前提：用户已经手动删掉不想要的图
     """
@@ -46,7 +48,7 @@ def get_all_source_images() -> list[Path]:
     if not images:
         raise RuntimeError(f"源图片目录没有找到图片：{SOURCE_IMAGE_DIR}")
 
-    print("\nD:\\logtemp 本次将入库的全部图片：")
+    print(f"\n{SOURCE_IMAGE_DIR} 本次将入库的全部图片：")
     for p in images:
         print(f"  - {p.name}")
 
@@ -113,5 +115,18 @@ def plan_asset_dsts(title: str, selected_images: list[Path], target_bucket: Path
     ]
 
 
-def make_asset_links(committed_files: list[Path]) -> list[str]:
-    return [p.relative_to(VAULT_ROOT).as_posix() for p in committed_files]
+def make_asset_links(committed_files: list[Path], md_path: Path) -> list[str]:
+    links = []
+    for image in committed_files:
+        if VAULT_ROOT is not None and image.is_relative_to(VAULT_ROOT) and md_path.is_relative_to(VAULT_ROOT):
+            links.append(f"![[{image.relative_to(VAULT_ROOT).as_posix()}]]")
+            continue
+
+        try:
+            relative = Path(os.path.relpath(image, md_path.parent)).as_posix()
+            url = "./" + quote(relative, safe="/")
+        except ValueError:
+            # Windows 上的不同盘符之间没有相对路径。
+            url = image.as_uri()
+        links.append(f"![]({url})")
+    return links

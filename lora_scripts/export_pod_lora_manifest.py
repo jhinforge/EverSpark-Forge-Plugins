@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 import json
 from datetime import datetime
@@ -18,9 +19,11 @@ from datetime import datetime
 # - 只导出清单
 # =====================================================
 
-VAULT_ROOT = Path(r"D:\Vault\LoraVault")
-LORA_MD_ROOT = VAULT_ROOT / "lora"
-OUTPUT_PATH = VAULT_ROOT / "temp" / "pod_lora_pull_manifest.json"
+WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
+
+from lora_vault_tools.config import LORA_MD_ROOT, POD_MANIFEST_PATH as OUTPUT_PATH
 
 
 def log(level: str, msg: str):
