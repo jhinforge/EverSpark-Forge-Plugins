@@ -192,7 +192,22 @@
         }
       };
       detail.replaceChildren(heading, info);
-      attachPicture(detail, row, "preview", value(row.lora_name));
+      if (row.preview_count > 1) {
+        const gallery = create("div", "", "lora-catalog-gallery");
+        gallery.setAttribute("role", "group");
+        gallery.setAttribute("aria-label", words("Model images", "模型图片"));
+        for (let index = 0; index < row.preview_count; index++) {
+          const image = create("img");
+          image.alt = `${value(row.lora_name)} (${index + 1} / ${row.preview_count})`;
+          image.loading = "lazy";
+          image.onerror = () => image.replaceWith(create("p", words("Image could not be loaded.", "图片无法加载。"), "section-copy"));
+          image.src = media(row, `preview:${index}`);
+          gallery.append(image);
+        }
+        detail.append(gallery);
+      } else {
+        attachPicture(detail, row, "preview", value(row.lora_name));
+      }
       detail.append(source);
       detail.showModal();
     }

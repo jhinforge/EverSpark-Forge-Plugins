@@ -51,6 +51,29 @@ class MediaTests(unittest.TestCase):
         self.write(self.previews / "002" / "kiss.001.jpeg")
         self.assertIsNone(media(self.config, "服装/kiss.md", "preview"))
 
+    def test_gallery_follows_note_order_and_skips_duplicates_and_missing_images(self):
+        jpg = self.write(self.previews / "001" / "kiss001.jpg")
+        png = self.write(self.previews / "002" / "kiss.002.png")
+        self.note("![[Assets/Loras/002/kiss.002.png]]\n![[missing.png]]\n"
+                  "![](Assets/Loras/001/kiss001.jpg)\n![[kiss.002.png]]")
+        note = "服装/kiss.md"
+        self.assertEqual(next(rows(self.config))["preview_count"], 2)
+        self.assertEqual(media(self.config, note, "preview"), (png, "image/png"))
+        self.assertEqual(media(self.config, note, "preview:0"), (png, "image/png"))
+        self.assertEqual(media(self.config, note, "preview:1"), (jpg, "image/jpeg"))
+        self.assertIsNone(media(self.config, note, "preview:2"))
+        self.assertIsNone(media(self.config, note, "preview:-1"))
+
+    def test_gallery_falls_back_to_numbered_files_order(self):
+        self.note()
+        second = self.write(self.previews / "002" / "kiss002.png")
+        first = self.write(self.previews / "001" / "kiss.001.jpg")
+        self.write(self.previews / "001" / "kiss_other003.jpg")
+        note = "服装/kiss.md"
+        self.assertEqual(next(rows(self.config))["preview_count"], 2)
+        self.assertEqual(media(self.config, note, "preview:0")[0], first)
+        self.assertEqual(media(self.config, note, "preview:1")[0], second)
+
     def test_unavailable_original_is_not_advertised(self):
         outside = self.write(self.vault / "outside.png")
         self.note(f"![]({outside.as_uri()})")

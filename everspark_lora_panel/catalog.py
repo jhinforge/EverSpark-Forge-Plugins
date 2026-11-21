@@ -164,24 +164,34 @@ class MediaLookup:
                 return self._find(matches, self.previews)
         return None
 
-    def preview(self, path, body):
-        for match in EMBED.finditer(body):
+    @cached_property
+    def numbered_previews(self):
+        by_stem = defaultdict(lambda: defaultdict(list))
+        for filename, paths in self.preview_names.items():
+            match = re.fullmatch(r"(.+?)(?:\.)?([0-9]{3})", Path(filename).stem)
+            if match:
+                stem, number = match.groups()
+                by_stem[stem][int(number)].extend(paths)
+        return by_stem
+
+    def previews_for(self, path, body):
+        embeds = list(EMBED.finditer(body))
+        seen = set()
+        for match in embeds:
             wiki = match[1] is not None
             link = (match[1].split("|", 1)[0] if wiki else match[2]).strip().strip("<>")
-            result = self._linked_preview(path, link, wiki)
-            if result:
-                return result
+            image = self._linked_preview(path, link, wiki)
+            if image and image not in seen:
+                seen.add(image)
+                yield image
 
-        # Older notes can omit the embed. The importer numbers originals from 001.
-        if not EMBED.search(body):
-            stem = path.stem.casefold()
-            matches = [
-                image for suffix in IMAGE_TYPES for separator in ("", ".")
-                for image in self.preview_names[f"{stem}{separator}001{suffix}"]
-            ]
-            if len(matches) == 1:
-                return self._find(matches, self.previews)
-        return None
+        # Older notes can omit embeds and use numbered image names instead.
+        if not embeds:
+            for _, candidates in sorted(self.numbered_previews[path.stem.casefold()].items()):
+                if len(candidates) == 1:
+                    image = self._find(candidates, self.previews)
+                    if image:
+                        yield image
 
     @cached_property
     def note_stems(self):
@@ -226,7 +236,7 @@ def rows(config):
                 continue
             modified = item.stat().st_mtime_ns // 1_000_000
             thumbnail = lookup.thumbnail(item)
-            preview = lookup.preview(item, body)
+            preview_count = sum(1 for _ in lookup.previews_for(item, body))
         except (OSError, UnicodeError):
             continue
         yield {
@@ -235,13 +245,15 @@ def rows(config):
             **{key: fields.get(key, "") for key in FIELDS},
             "modified": modified,
             "thumbnail": bool(thumbnail),
-            "preview": bool(preview),
+            "preview": preview_count > 0,
+            "preview_count": preview_count,
             "image_reference": bool(EMBED.search(body)),
         }
 
 
 def media(config, note_id, kind):
-    if kind not in {"thumbnail", "preview", "note"}:
+    indexed = re.fullmatch(r"preview:([0-9]{1,6})", kind)
+    if kind not in {"thumbnail", "preview", "note"} and not indexed:
         return None
     path = note_path(config, note_id)
     fields, body = read_note(path)
@@ -250,7 +262,11 @@ def media(config, note_id, kind):
     if kind == "note":
         return path, "text/plain; charset=utf-8"
     lookup = MediaLookup(config)
-    image = lookup.thumbnail(path) if kind == "thumbnail" else lookup.preview(path, body)
+    if kind == "thumbnail":
+        image = lookup.thumbnail(path)
+    else:
+        index = int(indexed[1]) if indexed else 0
+        image = next((image for number, image in enumerate(lookup.previews_for(path, body)) if number == index), None)
     if not image or image.suffix.lower() not in IMAGE_TYPES:
         return None
     return image, IMAGE_TYPES[image.suffix.lower()]
