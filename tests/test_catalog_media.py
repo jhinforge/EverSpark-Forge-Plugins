@@ -58,6 +58,24 @@ class MediaTests(unittest.TestCase):
         self.assertIsNone(media(self.config, "服装/kiss.md", "preview"))
         self.assertIsNone(media(self.config, "../outside.png", "preview"))
 
+    def test_catalog_reports_modified_time_and_unresolved_embedding(self):
+        note = self.note("![[missing.png]]")
+        row = next(rows(self.config))
+        self.assertEqual(row["modified"], note.stat().st_mtime_ns // 1_000_000)
+        self.assertTrue(row["image_reference"])
+        self.assertFalse(row["preview"])
+
+    def test_note_media_is_read_only_and_limited_to_catalog_notes(self):
+        note = self.note("![[example.png]]")
+        self.assertEqual(media(self.config, "服装/kiss.md", "note"), (note, "text/plain; charset=utf-8"))
+        self.note(name="Checkpoints/kiss.md")
+        self.assertIsNone(media(self.config, "Checkpoints/kiss.md", "note"))
+        self.assertEqual(len(list(rows(self.config))), 1)
+        self.write(self.vault / "outside.md", note.read_text(encoding="utf-8"))
+        self.write(self.notes / "not-a-model.md")
+        self.assertIsNone(media(self.config, "../outside.md", "note"))
+        self.assertIsNone(media(self.config, "not-a-model.md", "note"))
+
     def test_thumbnail_uses_exact_hash_before_legacy_fallback(self):
         self.note()
         exact = self.write(self.thumbnails / thumb_cache_name_from_md_path("lora/服装/kiss.md"))
