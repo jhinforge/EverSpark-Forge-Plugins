@@ -2,7 +2,9 @@ import json
 import os
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from .schema import CATEGORIES
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = Path(os.environ.get("LORA_PLUGIN_CONFIG") or REPO_ROOT / "lora-config.json").expanduser().resolve()
 
 
@@ -71,7 +73,6 @@ def notes_relative_path(md_path: Path) -> str:
 MODEL_REQUEST_TIMEOUT = 30
 MODEL_CHUNK_SIZE = 1024 * 1024
 
-CATEGORIES = ["部位", "服装", "画风", "角色", "外貌外观", "玩法"]
 BUCKET_LIMIT = 100
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 

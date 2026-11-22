@@ -118,7 +118,7 @@ def plan_asset_dsts(title: str, selected_images: list[Path], target_bucket: Path
 def make_asset_links(committed_files: list[Path], md_path: Path) -> list[str]:
     links = []
     for image in committed_files:
-        if VAULT_ROOT is not None and image.is_relative_to(VAULT_ROOT) and md_path.is_relative_to(VAULT_ROOT):
+        if VAULT_ROOT is not None and image.is_relative_to(VAULT_ROOT) and md_path.is_relative_to(VAULT_ROOT) and not any(ch in str(image) for ch in '|]#'):
             links.append(f"![[{image.relative_to(VAULT_ROOT).as_posix()}]]")
             continue
 

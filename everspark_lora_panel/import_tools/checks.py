@@ -29,7 +29,7 @@ def early_md_duplicate_check(title: str):
         )
 
 
-def warn_similar_md_names(title: str):
+def warn_similar_md_names(title: str, *, approved=None):
     """
     相似名提醒：只提醒，不拦截。
     """
@@ -45,6 +45,12 @@ def warn_similar_md_names(title: str):
 
     if not similar:
         return
+
+    if approved is True:
+        return
+    if approved is False:
+        names = ", ".join(p.stem for p in similar[:5])
+        raise ValueError(f"发现相似笔记名：{names}。确认后勾选「允许相似笔记名」再提交。")
 
     print("\n[WARN] 发现相似 md 文件名，请确认不是重复入库：")
     for p in similar[:20]:

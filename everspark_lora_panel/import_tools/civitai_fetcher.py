@@ -4,20 +4,20 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
-import requests
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .config import PENDING_JSON_PATH, SOURCE_IMAGE_DIR
-from .common import log, safe_filename
 
 CIVITAI_API_TOKEN = os.environ.get("CIVITAI_API_TOKEN", "").strip()
 REQUEST_TIMEOUT = 20
 USER_AGENT = "LoraVault-CivitaiFetcher/1.0"
 
 
-def build_headers():
+def build_headers(token=None):
     headers = {"User-Agent": USER_AGENT}
-    if CIVITAI_API_TOKEN.strip() and not CIVITAI_API_TOKEN.startswith("这里填"):
-        headers["Authorization"] = f"Bearer {CIVITAI_API_TOKEN.strip()}"
+    token = CIVITAI_API_TOKEN if token is None else token
+    if token and not token.startswith("这里填"):
+        headers["Authorization"] = f"Bearer {token}"
     return headers
 
 
@@ -42,14 +42,22 @@ def parse_civitai_url(url: str):
     return model_id, version_id
 
 
-def fetch_model_data(model_id: str):
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def fetch_model_data(model_id: str, token=None):
     api_url = f"https://civitai.com/api/v1/models/{model_id}"
-    resp = requests.get(api_url, headers=build_headers(), timeout=REQUEST_TIMEOUT)
-
-    if resp.status_code != 200:
-        raise RuntimeError(f"Civitai API 请求失败：HTTP {resp.status_code}")
-
-    return resp.json()
+    request = Request(api_url, headers=build_headers(token))
+    try:
+        with build_opener(NoRedirect).open(request, timeout=REQUEST_TIMEOUT) as response:
+            data = response.read(4_194_305)
+    except HTTPError as exc:
+        raise RuntimeError(f"Civitai API 请求失败：HTTP {exc.code}") from exc
+    if len(data) > 4_194_304:
+        raise RuntimeError("Civitai 返回的数据太大")
+    return json.loads(data)
 
 
 def select_model_version(model_data: dict, version_id: str | None):
@@ -118,10 +126,14 @@ def get_preview_image_urls(version_data: dict):
     if not isinstance(images, list):
         return []
 
-    return [img.get("url") for img in images if img.get("url")]
+    return [img["url"] for img in images if isinstance(img, dict) and img.get("type") != "video" and isinstance(img.get("url"), str) and img["url"]]
 
 
 def download_preview_images(title: str, image_urls: list[str]):
+    from .common import log, safe_filename
+    import requests
+    from .config import SOURCE_IMAGE_DIR
+
     SOURCE_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
     if not image_urls:
@@ -145,7 +157,7 @@ def download_preview_images(title: str, image_urls: list[str]):
     for url, dst in planned_files:
         log("INFO", f"下载图片：{dst.name}")
 
-        resp = requests.get(url, headers=build_headers(), timeout=REQUEST_TIMEOUT)
+        resp = requests.get(url, headers=build_headers(""), timeout=REQUEST_TIMEOUT)
 
         if resp.status_code != 200:
             raise RuntimeError(f"图片下载失败：HTTP {resp.status_code} | {url}")
@@ -157,6 +169,8 @@ def download_preview_images(title: str, image_urls: list[str]):
 
 
 def write_pending_json(payload: dict):
+    from .config import PENDING_JSON_PATH
+
     if PENDING_JSON_PATH.exists():
         raise RuntimeError(f"pending 文件已存在，停止防止覆盖：{PENDING_JSON_PATH}")
 
@@ -168,6 +182,9 @@ def write_pending_json(payload: dict):
 
 
 def fetch_civitai_to_pending(url: str) -> dict:
+    from .common import log
+    from .config import PENDING_JSON_PATH
+
     model_id, version_id = parse_civitai_url(url)
 
     log("INFO", f"model_id = {model_id}")

@@ -48,7 +48,7 @@ def cleanup_pending_json():
         log("WARN", f"pending JSON 删除失败，请手动检查：{PENDING_JSON_PATH} -> {e}")
 
 
-def commit_import(payload: dict, cleanup_pending: bool = False):
+def commit_import(payload: dict, cleanup_pending: bool = False, *, selected_images=None, approve_similar=None):
     """
     payload 标准结构：
 
@@ -68,9 +68,8 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
     }
 
     注意：
-    - 图片不从 payload 传入
-    - 使用配置的临时预览图目录下剩余的图片
-    - 用户应在运行 importer 前手动删掉不想入库的图片
+    - 传入 selected_images 时按指定顺序归档
+    - 终端调用默认使用临时预览图目录中保留的图片
     """
     title = payload["title"]
     category = payload["category"]
@@ -80,12 +79,12 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
     early_md_duplicate_check(title)
     log("OK", "第一轮 md 查重通过：当前 LoRA 库未发现同名 md")
 
-    warn_similar_md_names(title)
+    warn_similar_md_names(title, approved=approve_similar)
 
-    log("INFO", f"检查临时预览图：{SOURCE_IMAGE_DIR}")
-    ensure_source_images_exist_early()
-
-    selected_images = get_all_source_images()
+    if selected_images is None:
+        log("INFO", f"检查临时预览图：{SOURCE_IMAGE_DIR}")
+        ensure_source_images_exist_early()
+        selected_images = get_all_source_images()
 
     target_bucket = find_target_bucket(len(selected_images))
     print_bucket_info(target_bucket, len(selected_images))
@@ -129,10 +128,7 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
         )
 
         log("INFO", "提交图片到正式 Assets...")
-        committed_files = commit_staged_images(
-            staged_files,
-            planned_dsts,
-        )
+        commit_staged_images(staged_files, planned_dsts, committed=committed_files)
 
         asset_links = make_asset_links(committed_files, md_path)
 
@@ -141,8 +137,8 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
 
         # 第三层防覆盖：即使前面检查后外部突然创建同名 md，x 模式也会拒绝覆盖
         with md_path.open("x", encoding="utf-8") as f:
+            md_created = True
             f.write(md_text)
-        md_created = True
         log("OK", f"md 已创建：{md_path}")
 
         log("INFO", "生成缩略图缓存...")
@@ -171,7 +167,7 @@ def commit_import(payload: dict, cleanup_pending: bool = False):
             if cleanup_pending:
                 cleanup_pending_json()
         else:
-            log("WARN", f"入库未完整成功，已保留源图片：{SOURCE_IMAGE_DIR}")
+            log("WARN", "入库未完整成功，已保留源图片")
 
     print("\n[OK] 入库完成")
     print(f"[OK] md 文件：{md_path}")

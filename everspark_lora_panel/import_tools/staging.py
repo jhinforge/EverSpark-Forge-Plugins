@@ -37,17 +37,19 @@ def copy_images_to_staging(
 
 def commit_staged_images(
     staged_files: list[Path],
-    planned_dsts: list[Path]
+    planned_dsts: list[Path],
+    *, committed: list[Path]
 ) -> list[Path]:
-    committed = []
 
     for staged, dst in zip(staged_files, planned_dsts):
         if dst.exists():
             raise RuntimeError(f"提交前发现目标图片已存在，停止防止覆盖：{dst}")
 
         dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(staged), str(dst))
-        committed.append(dst)
+        with dst.open("xb") as output:
+            committed.append(dst)
+            with staged.open("rb") as source:
+                shutil.copyfileobj(source, output)
         log("OK", f"图片已提交到正式库：{dst}")
 
     return committed

@@ -1,6 +1,8 @@
+import json
+
+
 def yaml_quote(value: str) -> str:
-    value = str(value or "").replace('"', '\\"')
-    return f'"{value}"'
+    return json.dumps(str(value or ""), ensure_ascii=False)
 
 
 def yaml_block(value: str) -> str:

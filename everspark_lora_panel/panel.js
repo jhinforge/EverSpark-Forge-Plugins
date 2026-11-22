@@ -69,7 +69,7 @@
     return state;
   }
 
-  function mount(root, items) {
+  function mount(root, items, api, canImport) {
     const entries = items.map(describe);
     const state = loadState();
     const compare = (a, b) => a.localeCompare(b, "zh-Hans-CN");
@@ -154,6 +154,23 @@
     const pageLabel = create("span");
     pager.append(first, previous, pageLabel, next, last);
     root.replaceChildren(stats, controls, status, wrapper, pager, detail, hover);
+    if (canImport) {
+      const actions = create("div", "", "lora-catalog-import-actions");
+      const start = create("button", words("Add LoRA", "录入 LoRA"), "primary-button");
+      actions.append(start);
+      root.prepend(actions);
+      start.onclick = async () => {
+        start.disabled = true;
+        try {
+          const {categories} = await api("/api/plugins/lora/import/schema");
+          showImport(root, api, categories);
+        } catch (error) {
+          status.textContent = error.message;
+        } finally {
+          start.disabled = false;
+        }
+      };
+    }
 
     function hideHover() {
       hover.hidden = true;
@@ -348,10 +365,172 @@
     render();
   }
 
+  function showImport(root, api, categories) {
+    const dialog = create("dialog", "", "lora-catalog-dialog lora-catalog-import");
+    const form = create("form");
+    const heading = create("div", "", "section-toolbar");
+    const close = create("button", words("Close", "关闭"), "ghost-button");
+    heading.append(create("h3", words("Add LoRA", "录入 LoRA")), close);
+    close.onclick = () => dialog.close();
+    dialog.onclose = () => dialog.remove();
+
+    const mode = create("select");
+    mode.setAttribute("aria-label", words("Import mode", "录入方式"));
+    mode.add(new Option(words("Manual entry", "手动录入"), "manual"));
+    mode.add(new Option(words("Import from Civitai", "从 Civitai 导入"), "civitai"));
+    const source = create("div", "", "lora-catalog-import-source");
+    source.hidden = true;
+    const url = create("input");
+    url.type = "url";
+    url.placeholder = "https://civitai.com/models/…";
+    url.setAttribute("aria-label", words("Civitai model link", "Civitai 模型链接"));
+    const lookup = create("button", words("Fetch details", "抓取资料"), "secondary-button");
+    const settings = create("button", words("Civitai settings", "Civitai Key 设置"), "ghost-button");
+    settings.onclick = () => {
+      dialog.close();
+      document.getElementById("loraPluginConfigure")?.click();
+    };
+    source.append(url, lookup, settings);
+
+    const grid = create("div", "", "lora-catalog-import-fields");
+    const inputs = {};
+    function add(name, label, tag = "input", required = false) {
+      const wrapper = create("label", label);
+      const input = create(tag);
+      input.name = name;
+      input.required = required;
+      input.maxLength = name === "title" ? 100 : 8000;
+      wrapper.append(input);
+      grid.append(wrapper);
+      inputs[name] = input;
+      return input;
+    }
+    add("title", words("Note filename", "笔记文件名"), "input", true);
+    add("lora_name", words("Model name", "模型名称"), "input", true);
+    const category = add("category", words("Category", "分类"), "select", true);
+    category.add(new Option(words("Choose a category", "请选择分类"), ""));
+    for (const item of categories) category.add(new Option(item, item));
+    add("lora_version", words("Model version", "模型版本"));
+    add("model_support", words("Base model", "支持模型"));
+    add("download_url", words("Download URL", "下载链接"));
+    add("effect", words("Effect", "效果"));
+    add("trigger_words", words("Trigger words", "触发词"), "textarea");
+    add("notes", words("Notes", "备注"), "textarea");
+
+    const files = create("input");
+    files.type = "file";
+    files.multiple = true;
+    files.accept = "image/png,image/jpeg,image/gif,image/webp";
+    const local = create("label", words("Add local preview images", "选择本地预览图"));
+    local.append(files);
+    const previews = create("div", "", "lora-catalog-import-previews");
+    const approve = create("input");
+    approve.type = "checkbox";
+    const approval = create("label", "", "lora-catalog-toggle");
+    approval.append(approve, document.createTextNode(words("Allow a similar note filename", "允许相似笔记名")));
+    const feedback = create("p", "", "section-copy");
+    feedback.setAttribute("role", "status");
+    const save = create("button", words("Save to catalog", "确认入库"), "primary-button");
+    save.type = "submit";
+    let busy = false;
+
+    function post(path, payload) {
+      return api("/api/plugins/lora/import/" + path, {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
+      });
+    }
+    function setBusy(flag) {
+      busy = flag;
+      for (const button of [save, lookup, close, settings, mode]) button.disabled = flag;
+    }
+    mode.onchange = () => {
+      source.hidden = mode.value !== "civitai";
+      previews.replaceChildren();
+    };
+    lookup.onclick = async () => {
+      setBusy(true);
+      feedback.textContent = words("Loading…", "正在抓取…");
+      try {
+        const result = await post("civitai", {url: url.value.trim()});
+        inputs.title.value = result.title;
+        for (const [name, value] of Object.entries(result.fields)) {
+          if (name !== "category" || value) inputs[name].value = value;
+        }
+        previews.replaceChildren();
+        result.previews.forEach((address, index) => {
+          const tile = create("label");
+          const image = create("img");
+          image.alt = words(`Preview ${index + 1}`, `预览图 ${index + 1}`);
+          image.loading = "lazy";
+          image.referrerPolicy = "no-referrer";
+          image.src = address;
+          const checked = create("input");
+          checked.type = "checkbox";
+          checked.checked = true;
+          checked.value = address;
+          checked.setAttribute("aria-label", image.alt);
+          tile.append(image, checked);
+          previews.append(tile);
+        });
+        feedback.textContent = words("Review the details and select previews to keep.", "请检查字段并勾选要保留的预览图。");
+      } catch (error) {
+        feedback.textContent = error.message;
+      } finally {
+        setBusy(false);
+      }
+    };
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      if (busy) return;
+      const selected = [...previews.querySelectorAll("input:checked")].map((input) => ({url: input.value}));
+      const localFiles = [...files.files];
+      if (!selected.length && !localFiles.length) {
+        feedback.textContent = words("Select at least one preview.", "请至少选择一张预览图。");
+        return;
+      }
+      if (selected.length + localFiles.length > 24 || localFiles.some((file) => file.size > 12 * 1024 * 1024)
+          || localFiles.reduce((size, file) => size + file.size, 0) > 24 * 1024 * 1024) {
+        feedback.textContent = words("Use up to 24 images, 12 MB each and 24 MB total.", "最多 24 张图，单张 12 MB，合计 24 MB。");
+        return;
+      }
+      setBusy(true);
+      feedback.textContent = words("Saving…", "正在入库…");
+      try {
+        for (const file of localFiles) {
+          const data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(",", 2)[1]);
+            reader.onerror = () => reject(new Error(words("Could not read a preview image.", "无法读取预览图。")));
+            reader.readAsDataURL(file);
+          });
+          selected.push({data});
+        }
+        const {title, ...fields} = Object.fromEntries(Object.entries(inputs).map(([name, input]) => [name, input.value]));
+        const saved = await post("commit", {title, fields, images: selected, approve_similar: approve.checked});
+        try {
+          await window.EverSparkLoraCatalog.mount(root, api);
+          root.querySelector(".lora-catalog-import-actions button")?.focus();
+        } catch (_) {
+          feedback.textContent = words(`Saved ${saved.note}. Reopen the panel to refresh.`, `已入库 ${saved.note}，重新打开面板可刷新。`);
+          save.hidden = true;
+        }
+      } catch (error) {
+        feedback.textContent = error.message;
+      } finally {
+        setBusy(false);
+      }
+    };
+    dialog.addEventListener("cancel", (event) => { if (busy) event.preventDefault(); });
+    form.append(mode, source, grid, local, previews, approval, feedback, save);
+    dialog.append(heading, form);
+    root.append(dialog);
+    dialog.showModal();
+  }
+
   window.EverSparkLoraCatalog = {
     async mount(root, api) {
-      const {items} = await api("/api/plugins/lora/catalog");
-      mount(root, items);
+      const {items, can_import: canImport} = await api("/api/plugins/lora/catalog");
+      mount(root, items, api, canImport);
     },
   };
 })();

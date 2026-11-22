@@ -57,3 +57,15 @@ button.lora-catalog-stat:is(:hover, [aria-pressed="true"]) { border-color: var(-
 }
 .lora-catalog-dialog details { margin-top: 1rem; }
 .lora-catalog-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.lora-catalog-import-actions { display: flex; justify-content: flex-end; margin-bottom: .75rem; }
+.lora-catalog-import { width: min(760px, calc(100% - 2rem)); }
+.lora-catalog-import form { display: grid; gap: .75rem; }
+.lora-catalog-import [hidden] { display: none !important; }
+.lora-catalog-import-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.lora-catalog-import-fields label { display: grid; gap: .25rem; }
+.lora-catalog-import-source { display: flex; flex-wrap: wrap; gap: .4rem; }
+.lora-catalog-import-source input { flex: 1 1 14rem; }
+.lora-catalog-import-previews { display: flex; flex-wrap: wrap; gap: .5rem; }
+.lora-catalog-import-previews label { display: grid; justify-items: center; gap: .2rem; }
+.lora-catalog-import-previews img { width: 86px; height: 86px; margin: 0; object-fit: contain; }
+@media (max-width: 540px) { .lora-catalog-import-fields { grid-template-columns: 1fr; } }
