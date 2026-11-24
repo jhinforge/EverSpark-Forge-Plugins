@@ -21,7 +21,7 @@
   }
 
   function media(row, kind) {
-    return "/api/plugins/lora/media?" + new URLSearchParams({id: row.id, kind});
+    return "/api/plugins/lora/media?" + new URLSearchParams({id: row.id, kind, library: row.library || "lora"});
   }
 
   function attachPicture(parent, row, preferred, description) {
@@ -41,27 +41,27 @@
     loadNext();
   }
 
-  function describe(row) {
+  function describe(row, checkpoint) {
     const categories = category(row);
     const support = models(row);
-    const marks = loaded(row) ? "pod_loaded pod loaded 当前pod已加载" : "pod_unloaded pod unloaded 当前pod未加载";
+    const marks = checkpoint ? (loaded(row) ? "downloaded 已下载" : "not downloaded 未下载") : loaded(row) ? "pod_loaded pod loaded 当前pod已加载" : "pod_unloaded pod unloaded 当前pod未加载";
     return {
       row, categories, support,
       notes: blank(row.notes) ? "missing" : ["无", "none", "n/a", "na"].includes(norm(row.notes)) ? "none" : "has",
-      missing: fields.filter((key) => {
+      missing: (checkpoint ? ["model_support", "download_url", "notes"] : fields).filter((key) => {
         if (key === "category") return !categories.length;
         if (key === "model_support") return !support.length;
         return blank(row[key]);
       }),
       search: norm([row.title, row.lora_name, row.lora_version, row.effect, row.trigger_words,
-        ...support, ...categories, row.download_url, row.notes, marks]),
+        ...support, ...categories, row.download_url, row.notes, row.POSITIVE, row.NEGATIVE, marks]),
     };
   }
 
-  function loadState() {
+  function loadState(key = storageKey) {
     const state = {...defaults};
     try {
-      const saved = JSON.parse(localStorage.getItem(storageKey));
+      const saved = JSON.parse(localStorage.getItem(key));
       for (const [key, initial] of Object.entries(defaults)) {
         if (typeof saved?.[key] === typeof initial) state[key] = saved[key];
       }
@@ -69,9 +69,16 @@
     return state;
   }
 
-  function mount(root, items, api, canImport, canDelete) {
-    const entries = items.map(describe);
-    const state = loadState();
+  function mount(root, items, api, canImport, canDelete, checkpoint, panelRoot = root) {
+    const key = checkpoint ? storageKey + "-checkpoints" : storageKey;
+    const entries = items.map((row) => describe(checkpoint ? {
+      ...row, library: "checkpoints", lora_name: row.model_name, lora_version: row.model_version,
+      model_support: row.base_model, effect: row.style, pod_loaded: row.tested,
+    } : row, checkpoint));
+    const state = loadState(key);
+    const loadedText = checkpoint ? words("Downloaded", "已下载") : words("Pod loaded", "Pod 已加载");
+    const unloadedText = checkpoint ? words("Not downloaded", "未下载") : words("Not loaded", "未加载");
+    const modelText = checkpoint ? words("Base architecture", "基底") : words("Base model", "支持模型");
     const compare = (a, b) => a.localeCompare(b, "zh-Hans-CN");
     const stats = create("div", "", "lora-catalog-stats");
     const controls = create("div", "", "lora-catalog-controls");
@@ -92,7 +99,8 @@
     let hoverPosition;
     const search = create("input");
     search.type = "search";
-    search.placeholder = words("Search models, notes, and trigger words", "搜索模型、备注和触发词");
+    search.placeholder = checkpoint ? words("Search checkpoints and notes", "搜索 Checkpoints 和备注")
+      : words("Search models, notes, and trigger words", "搜索模型、备注和触发词");
     search.setAttribute("aria-label", search.placeholder);
     search.value = state.q;
     search.oninput = () => update({q: search.value, missingCache: false});
@@ -115,20 +123,22 @@
       controls.append(input);
     }
     select("category", words("Category", "分类"), [["", words("All categories", "所有分类")], ...choices("categories")]);
-    select("model", words("Base model", "支持模型"), [["", words("All base models", "所有支持模型")], ...choices("support")]);
-    select("pod", words("Pod status", "Pod 状态"), [
-      ["", words("All Pod states", "所有 Pod 状态")], ["loaded", words("Loaded", "已加载")], ["unloaded", words("Not loaded", "未加载")]]);
+    select("model", modelText, [["", checkpoint ? words("All base models", "所有基底") : words("All base models", "所有支持模型")], ...choices("support")]);
+    select("pod", checkpoint ? words("Download status", "下载状态") : words("Pod status", "Pod 状态"), [
+      ["", words("All states", "所有状态")], ["loaded", loadedText], ["unloaded", unloadedText]]);
     select("notes", words("Notes status", "备注状态"), [
       ["", words("All notes", "所有备注")], ["has", words("Has notes", "有备注")],
       ["missing", words("Blank notes", "备注为空")], ["none", words("Explicitly none", "明确标记为无")]]);
     select("integrity", words("Field completeness", "字段完整性"), [
       ["", words("All records", "所有条目")], ["any", words("Any missing field", "任意字段缺失")],
-      ["category", words("Missing category", "缺分类")], ["model_support", words("Missing base model", "缺支持模型")],
-      ["trigger_words", words("Missing trigger words", "缺触发词")], ["download_url", words("Missing download URL", "缺下载链接")],
-      ["effect", words("Missing effect", "缺效果")], ["notes", words("Missing notes", "缺备注")]]);
+      ...(!checkpoint ? [["category", words("Missing category", "缺分类")], ["trigger_words", words("Missing trigger words", "缺触发词")],
+        ["effect", words("Missing effect", "缺效果")]] : []),
+      ["model_support", words("Missing base model", "缺基底")], ["download_url", words("Missing download URL", "缺下载链接")],
+      ["notes", words("Missing notes", "缺备注")]]);
     select("sort", words("Sort", "排序"), [
-      ["category", words("Category, then filename", "按分类、文件名")], ["filename", words("Filename", "按文件名")],
-      ["model", words("Base model", "按支持模型")], ["pod", words("Pod loaded first", "Pod 已加载优先")],
+      ["category", checkpoint ? words("Category, then model name", "按分类、模型名") : words("Category, then filename", "按分类、文件名")],
+      ["filename", words("Filename", "按文件名")], ["model", modelText],
+      ["pod", checkpoint ? words("Downloaded first", "已下载优先") : words("Pod loaded first", "Pod 已加载优先")],
       ["newest", words("Recently modified", "最近修改优先")], ["oldest", words("Oldest modified", "最早修改优先")]]);
     select("pageSize", words("Rows per page", "每页条数"), [25, 50, 100].map((size) => [size, String(size)]));
 
@@ -162,7 +172,7 @@
         start.disabled = true;
         try {
           const {categories} = await api("/api/plugins/lora/import/schema");
-          showImport(root, api, categories);
+          showImport(panelRoot, api, categories);
         } catch (error) {
           status.textContent = error.message;
         } finally {
@@ -190,23 +200,42 @@
         const remove = create("button", words("Delete permanently…", "永久删除…"), "ghost-button lora-danger-action lora-detail-menu-item");
         remove.onclick = () => {
           menu.open = false;
-          void confirmDeletion(root, detail, row, api);
+          void confirmDeletion(panelRoot, detail, row, api);
         };
         menu.append(remove);
       } else {
         menu.append(create("p", words("Update and restart the EverSpark Forge client to enable deletion.",
           "更新并重启 EverSpark Forge 客户端后，即可使用永久删除。"), "lora-detail-menu-item"));
       }
-      actions.append(menu);
+      if (!checkpoint) actions.append(menu);
       actions.append(close);
       heading.append(create("h3", value(row.lora_name)), actions);
       const info = create("dl");
       for (const [key, label] of [
         ["id", words("Note", "笔记")], ["lora_version", words("Version", "版本")],
-        ["category", words("Category", "分类")], ["trigger_words", words("Trigger words", "触发词")],
-        ["model_support", words("Base model", "支持模型")], ["effect", words("Effect", "效果")],
+        ["category", words("Category", "分类")],
+        ["model_support", modelText], ["effect", checkpoint ? words("Style", "风格") : words("Effect", "效果")],
+        ...(checkpoint ? [["POSITIVE", words("Positive prompt", "正向提示词")], ["NEGATIVE", words("Negative prompt", "反向提示词")]]
+          : [["trigger_words", words("Trigger words", "触发词")]]),
         ["notes", words("Notes", "备注")], ["download_url", words("Download URL", "下载链接")],
-      ]) if (!blank(row[key])) info.append(create("dt", label), create("dd", value(row[key])));
+      ]) {
+        if (blank(row[key])) continue;
+        const entry = create("dd", value(row[key]));
+        if (key === "POSITIVE" || key === "NEGATIVE") {
+          const copy = create("button", words("Copy", "复制"), "ghost-button");
+          copy.setAttribute("aria-label", words("Copy ", "复制") + label);
+          copy.onclick = async () => {
+            try {
+              await navigator.clipboard.writeText(value(row[key]));
+              copy.textContent = words("Copied", "已复制");
+            } catch (_) {
+              copy.textContent = words("Copy failed", "复制失败");
+            }
+          };
+          entry.append(document.createElement("br"), copy);
+        }
+        info.append(create("dt", label), entry);
+      }
       const source = create("details");
       source.append(create("summary", words("View Markdown", "查看 Markdown 原文")));
       const raw = create("pre");
@@ -282,14 +311,15 @@
     const cache = card(words("Thumbnail cache", "缩略图缓存"), `${cached} / ${total}`, words(`Missing ${total - cached}`, `缺失 ${total - cached}`),
       cached < total ? () => update({missingCache: !state.missingCache}) : null);
     stats.append(current,
-      card(words("Pod loaded", "Pod 已加载"), podCount, words(`Not loaded ${total - podCount}`, `未加载 ${total - podCount}`), () => update({pod: "loaded", missingCache: false})),
+      card(loadedText, podCount, `${unloadedText} ${total - podCount}`, () => update({pod: "loaded", missingCache: false})),
       card(words("Has notes", "有备注"), notesCount, words(`Explicitly none ${noneNotes}`, `明确为无 ${noneNotes}`), () => update({notes: "has", missingCache: false})),
       card(words("Blank notes", "备注为空"), blankNotes, "", () => update({notes: "missing", missingCache: false})),
       card(words("Incomplete fields", "字段缺失"), incomplete, "", () => update({integrity: "any", missingCache: false})),
       cache, card(words("No image reference", "无原图引用"), noImage));
 
     const sortOrders = {
-        category: (a, b) => compare(a.categories[0] || "", b.categories[0] || ""),
+        category: (a, b) => compare(a.categories[0] || "", b.categories[0] || "")
+          || (checkpoint ? compare(value(a.row.lora_name), value(b.row.lora_name)) : 0),
         filename: () => 0,
         model: (a, b) => compare(value(a.support), value(b.support)),
         pod: (a, b) => Number(loaded(b.row)) - Number(loaded(a.row)),
@@ -318,12 +348,12 @@
       current.querySelector("strong").textContent = `${filtered.length} / ${total}`;
       if (cached < total) cache.setAttribute("aria-pressed", String(state.missingCache));
       status.textContent = filtered.length ? words(`${shown.length} on this page`, `本页 ${shown.length} 个模型`)
-        : total ? words("No models match the filters.", "没有符合条件的模型。") : words("No LoRA notes found in this folder.", "所选目录里没有 LoRA 笔记。");
+        : total ? words("No models match the filters.", "没有符合条件的模型。") : words("No model notes found in this folder.", "所选目录里没有模型笔记。");
 
       const columns = [
         ...(state.showPreview ? [words("Preview", "预览")] : []),
-        words("Model", "模型"), words("Category", "分类"), words("Base model", "支持模型"),
-        words("Pod loaded", "Pod 已加载"), words("Effect", "效果"),
+        words("Model", "模型"), ...(checkpoint ? [modelText, words("Category", "分类"), words("Style", "风格"), loadedText]
+          : [words("Category", "分类"), modelText, loadedText, words("Effect", "效果")]),
       ];
       header.replaceChildren(...columns.map((caption) => {
         const cell = create("th", caption);
@@ -359,7 +389,9 @@
         const name = create("button", value(row.lora_name), "ghost-button");
         name.onclick = () => show(row);
         line.insertCell().append(name);
-        for (const field of [categories, support, loaded(row) ? words("Loaded", "已加载") : "—", row.effect]) {
+        const stateText = loaded(row) ? (checkpoint ? loadedText : words("Loaded", "已加载")) : "—";
+        const cells = checkpoint ? [support, categories, row.effect, stateText] : [categories, support, stateText, row.effect];
+        for (const field of cells) {
           line.insertCell().textContent = value(field) || "—";
         }
       }
@@ -367,7 +399,7 @@
       first.disabled = previous.disabled = state.page <= 1;
       next.disabled = last.disabled = state.page >= pages;
       last.onclick = () => { state.page = pages; render(); };
-      try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch (_) { /* Storage may be unavailable. */ }
+      try { localStorage.setItem(key, JSON.stringify(state)); } catch (_) { /* Storage may be unavailable. */ }
     }
     first.onclick = () => { state.page = 1; render(); };
     previous.onclick = () => { state.page--; render(); };
@@ -610,8 +642,80 @@
 
   window.EverSparkLoraCatalog = {
     async mount(root, api) {
-      const {items, can_import: canImport, can_delete: canDelete} = await api("/api/plugins/lora/catalog");
-      mount(root, items, api, canImport, canDelete);
+      const catalogUrl = "/api/plugins/lora/catalog";
+      const initial = await api(catalogUrl);
+      if (!initial.checkpoints) {
+        mount(root, initial.items, api, initial.can_import, initial.can_delete, false);
+        return;
+      }
+      let library = "lora";
+      try {
+        if (localStorage.getItem(storageKey + "-library") === "checkpoints" ||
+            (!initial.lora_configured && initial.checkpoints_configured)) library = "checkpoints";
+      } catch (_) { /* Storage may be unavailable. */ }
+
+      const bar = create("div", "", "lora-library-toolbar");
+      const tabs = create("div", "", "lora-library-tabs");
+      const buttons = ["lora", "checkpoints"].map((kind) => {
+        const button = create("button", kind === "lora" ? "LoRA" : "Checkpoints", "ghost-button");
+        button.onclick = () => void load(kind);
+        tabs.append(button);
+        return button;
+      });
+      const rebuild = create("button", words("Rebuild thumbnails", "重建缩略图"), "ghost-button");
+      const feedback = create("p", "", "section-copy");
+      feedback.setAttribute("role", "status");
+      const content = create("div");
+      bar.append(tabs, rebuild);
+      root.replaceChildren(bar, feedback, content);
+      let turn = 0;
+
+      async function load(kind, supplied) {
+        const ticket = ++turn;
+        library = kind;
+        for (const [i, button] of buttons.entries()) {
+          button.setAttribute("aria-pressed", String(i === (kind === "lora" ? 0 : 1)));
+        }
+        try { localStorage.setItem(storageKey + "-library", kind); } catch (_) { /* Storage may be unavailable. */ }
+        rebuild.disabled = true;
+        feedback.textContent = "";
+        content.replaceChildren();
+        try {
+          const data = supplied || await api(catalogUrl + "?" + new URLSearchParams({library: kind}));
+          if (ticket !== turn) return;
+          if (!data[kind + "_configured"]) {
+            const settings = create("button", words("Open directory settings", "打开目录设置"), "ghost-button");
+            settings.onclick = () => document.getElementById("loraPluginConfigure")?.click();
+            content.append(create("p", words("Choose this library’s four directories first.", "请先为这个模型库指定四个目录。")), settings);
+            return;
+          }
+          rebuild.disabled = !data.can_rebuild;
+          mount(content, data.items, api, data.can_import, data.can_delete, kind === "checkpoints", root);
+        } catch (error) {
+          if (ticket === turn) feedback.textContent = error.message;
+        }
+      }
+      rebuild.onclick = async () => {
+        const kind = library;
+        rebuild.disabled = true;
+        for (const button of buttons) button.disabled = true;
+        feedback.textContent = words("Rebuilding thumbnails…", "正在全量重建缩略图…");
+        try {
+          const result = await api("/api/plugins/lora/thumbnails/rebuild", {
+            method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({library: kind}),
+          });
+          await load(kind);
+          feedback.textContent = words(
+            `Generated ${result.generated}, missing originals ${result.missing}, failed ${result.failed}.`,
+            `已生成 ${result.generated} 张，缺原图 ${result.missing} 条，失败 ${result.failed} 条。`);
+        } catch (error) {
+          feedback.textContent = error.message;
+          rebuild.disabled = false;
+        } finally {
+          for (const button of buttons) button.disabled = false;
+        }
+      };
+      await load(library, library === "lora" ? initial : undefined);
     },
   };
 })();

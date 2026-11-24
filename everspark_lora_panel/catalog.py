@@ -24,6 +24,10 @@ FIELDS = (
 )
 
 
+CHECKPOINT_FIELDS = ("model_name", "base_model", "model_version", "category", "style",
+                     "tested", "download_url", "notes", "POSITIVE", "NEGATIVE")
+
+
 def scalar(value):
     value = value.strip()
     if value.startswith('"') and value.endswith('"'):
@@ -88,7 +92,9 @@ def note_path(config, note_id):
     vault = config.get("vault_root")
     base = vault if vault and path.is_relative_to(vault) else root
     parts = path.relative_to(base).parts
-    return None if parts and parts[0].casefold() == "checkpoints" else path
+    if config.get("library") != "checkpoints" and parts and parts[0].casefold() == "checkpoints":
+        return None
+    return path
 
 
 def read_note(path):
@@ -228,24 +234,34 @@ class MediaLookup:
         return None
 
 
-def rows(config):
+def entries(config):
     root = config["notes_dir"]
-    lookup = MediaLookup(config)
+    name = "model_name" if config.get("library") == "checkpoints" else "lora_name"
     for path in sorted(root.rglob("*.md")):
         try:
             item = note_path(config, path.relative_to(root).as_posix())
             fields, body = read_note(item)
-            if not fields.get("lora_name"):
-                continue
+        except (OSError, UnicodeError):
+            continue
+        if fields.get(name):
+            yield item, fields, body
+
+
+def rows(config):
+    root = config["notes_dir"]
+    checkpoint = config.get("library") == "checkpoints"
+    lookup = MediaLookup(config)
+    for item, fields, body in entries(config):
+        try:
             modified = item.stat().st_mtime_ns // 1_000_000
             thumbnail = lookup.thumbnail(item)
             preview_count = sum(1 for _ in lookup.previews_for(item, body))
         except (OSError, UnicodeError):
             continue
         yield {
-            "id": path.relative_to(root).as_posix(),
-            "title": path.stem,
-            **{key: fields.get(key, "") for key in FIELDS},
+            "id": item.relative_to(root).as_posix(),
+            "title": item.stem,
+            **{key: fields.get(key, "") for key in (CHECKPOINT_FIELDS if checkpoint else FIELDS)},
             "modified": modified,
             "thumbnail": bool(thumbnail),
             "preview": preview_count > 0,
@@ -260,7 +276,7 @@ def media(config, note_id, kind):
         return None
     path = note_path(config, note_id)
     fields, body = read_note(path)
-    if not fields.get("lora_name"):
+    if not fields.get("model_name" if config.get("library") == "checkpoints" else "lora_name"):
         return None
     if kind == "note":
         return path, "text/plain; charset=utf-8"

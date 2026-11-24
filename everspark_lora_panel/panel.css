@@ -95,3 +95,6 @@ button.lora-catalog-stat:is(:hover, [aria-pressed="true"]) { border-color: var(-
 .lora-danger-action { color: #ff9393; border-color: #a84e56; }
 .lora-delete-dialog { width: min(28rem, calc(100% - 2rem)); }
 .lora-delete-actions { margin-top: 1rem; }
+.lora-library-toolbar, .lora-library-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.lora-library-toolbar { justify-content: space-between; margin-bottom: .75rem; }
+.lora-library-tabs [aria-pressed="true"] { background: var(--primary-soft, #ffffff18); border-color: var(--border-accent, #8e9cff); }
