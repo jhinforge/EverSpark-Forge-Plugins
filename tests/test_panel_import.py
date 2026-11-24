@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import Request
 
 from everspark_lora_panel import catalog, importer
 
@@ -50,6 +52,26 @@ class PanelImportTests(unittest.TestCase):
         self.assertEqual(result["fields"]["lora_version"], "new")
         self.assertEqual(result["previews"], ["https://image.civitai.com/example.png"])
         self.assertNotIn("test-key", str(result))
+
+    def test_only_follows_supported_https_preview_redirects(self):
+        handler = importer.PreviewRedirect()
+        request = Request("https://image.civitai.com/original.png")
+        destination = "https://imagecache.civitai.com/new.png"
+        result = handler.redirect_request(request, None, 302, "Found", {}, destination)
+        self.assertEqual(result.full_url, destination)
+        for destination in ("http://image.civitai.com/new.png", "https://example.org/new.png"):
+            with self.subTest(destination=destination), self.assertRaisesRegex(ValueError, "跳转目标"):
+                handler.redirect_request(request, None, 302, "Found", {}, destination)
+
+    def test_preview_failure_reports_index_and_http_status_before_writing(self):
+        url = "https://image.civitai.com/test.png"
+        self.payload["images"].append({"url": url})
+        with patch.object(importer, "build_opener") as opener:
+            opener.return_value.open.side_effect = HTTPError(url, 403, "Forbidden", {}, None)
+            with self.assertRaisesRegex(ValueError, "第 2 张.*HTTP 403"):
+                importer.commit(self.config, self.payload)
+        self.assertFalse(self.config["notes_dir"].exists())
+        self.assertEqual(list(self.config["temp_dir"].iterdir()), [])
 
     def test_bad_images_are_rejected_before_any_archive_write(self):
         self.payload["images"] = [{"data": base64.b64encode(b"not an image").decode()}]

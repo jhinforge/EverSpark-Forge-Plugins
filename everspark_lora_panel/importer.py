@@ -7,9 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, build_opener
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .import_tools import civitai_fetcher as civitai
 from .import_tools.schema import CATEGORIES
@@ -28,6 +28,15 @@ def remote_image(url):
     if parsed.scheme != "https" or parsed.netloc.lower() not in IMAGE_HOSTS:
         raise ValueError("不支持这个 Civitai 预览图地址。")
     return url
+
+
+class PreviewRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            remote_image(newurl)
+        except ValueError as exc:
+            raise ValueError(f"预览图服务器返回 HTTP {code}，跳转目标不在支持的 Civitai 图片域名内。") from exc
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def fetch_fields(url, token):
@@ -79,11 +88,20 @@ def image_bytes(item):
         raise ValueError("预览图格式有误。")
     if isinstance(item.get("url"), str):
         url = remote_image(item["url"])
+        request = Request(url, headers={
+            "User-Agent": civitai.USER_AGENT,
+            "Accept": "image/webp,image/png,image/jpeg,image/gif,image/*;q=0.8",
+        })
         try:
-            with build_opener(civitai.NoRedirect).open(Request(url, headers={"User-Agent": civitai.USER_AGENT}), timeout=15) as response:
+            with build_opener(PreviewRedirect).open(request, timeout=15) as response:
                 return response.read(MAX_IMAGE + 1)
-        except (URLError, TimeoutError) as exc:
-            raise ValueError("无法下载所选预览图，可改为选择本地图片。") from exc
+        except HTTPError as exc:
+            raise ValueError(f"预览图服务器返回 HTTP {exc.code}。") from exc
+        except (TimeoutError, URLError) as exc:
+            reason = exc.reason if isinstance(exc, URLError) else exc
+            if isinstance(reason, TimeoutError):
+                raise ValueError("连接 Civitai 图片服务器超时。") from exc
+            raise ValueError(f"无法连接 Civitai 图片服务器（{type(reason).__name__}）。") from exc
     if not isinstance(item.get("data"), str) or len(item["data"]) > (MAX_IMAGE + 2) // 3 * 4:
         raise ValueError("单张预览图最大 12 MB。")
     try:
@@ -117,7 +135,10 @@ def commit(config, payload):
         total = 0
         sources = []
         for index, item in enumerate(images, 1):
-            data = image_bytes(item)
+            try:
+                data = image_bytes(item)
+            except ValueError as exc:
+                raise ValueError(f"第 {index} 张预览图读取失败：{exc}") from exc
             total += len(data)
             if len(data) > MAX_IMAGE or total > MAX_TOTAL:
                 raise ValueError("预览图超过单张 12 MB 或合计 24 MB 的限制。")
