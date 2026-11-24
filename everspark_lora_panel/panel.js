@@ -2,7 +2,7 @@
   const words = (en, cn) => document.documentElement.lang.toLowerCase().startsWith("zh") ? cn : en;
   const storageKey = "everspark-lora-catalog-state";
   const filters = {q: "", category: "", model: "", pod: "", notes: "", integrity: "", missingCache: false};
-  const defaults = {...filters, sort: "category", pageSize: 50, page: 1, showPreview: true, showOpen: false};
+  const defaults = {...filters, sort: "category", pageSize: 50, page: 1, showPreview: true};
   const fields = ["category", "model_support", "trigger_words", "download_url", "effect", "notes"];
   const value = (field) => Array.isArray(field) ? field.map(value).join(" / ") : String(field ?? "");
   const list = (field, separators) => (Array.isArray(field) ? field : value(field).split(separators)).map(value).map((s) => s.trim()).filter(Boolean);
@@ -69,7 +69,7 @@
     return state;
   }
 
-  function mount(root, items, api, canImport) {
+  function mount(root, items, api, canImport, canDelete) {
     const entries = items.map(describe);
     const state = loadState();
     const compare = (a, b) => a.localeCompare(b, "zh-Hans-CN");
@@ -145,7 +145,6 @@
       controls.append(label);
     }
     toggle("showPreview", words("Show previews", "显示预览"));
-    toggle("showOpen", words("Show Open column", "显示打开列"));
 
     const first = create("button", words("First", "首页"), "ghost-button");
     const previous = create("button", words("Previous", "上一页"), "ghost-button");
@@ -183,7 +182,21 @@
       const heading = create("div", "", "section-toolbar");
       const close = create("button", words("Close", "关闭"), "ghost-button");
       close.onclick = () => detail.close();
-      heading.append(create("h3", value(row.lora_name)), close);
+      const actions = create("div", "", "lora-detail-actions");
+      if (canDelete) {
+        const menu = create("details", "", "lora-detail-menu");
+        const trigger = create("summary", "⋯", "ghost-button");
+        trigger.setAttribute("aria-label", words("More actions", "更多操作"));
+        const remove = create("button", words("Delete permanently…", "永久删除…"), "ghost-button lora-danger-action");
+        remove.onclick = () => {
+          menu.open = false;
+          void confirmDeletion(root, detail, row, api);
+        };
+        menu.append(trigger, remove);
+        actions.append(menu);
+      }
+      actions.append(close);
+      heading.append(create("h3", value(row.lora_name)), actions);
       const info = create("dl");
       for (const [key, label] of [
         ["id", words("Note", "笔记")], ["lora_version", words("Version", "版本")],
@@ -306,7 +319,6 @@
 
       const columns = [
         ...(state.showPreview ? [words("Preview", "预览")] : []),
-        ...(state.showOpen ? [words("Open", "打开")] : []),
         words("Model", "模型"), words("Category", "分类"), words("Base model", "支持模型"),
         words("Pod loaded", "Pod 已加载"), words("Effect", "效果"),
       ];
@@ -341,11 +353,6 @@
             cell.append(button);
           } else cell.textContent = "—";
         }
-        if (state.showOpen) {
-          const open = create("button", row.title, "ghost-button");
-          open.onclick = () => show(row);
-          line.insertCell().append(open);
-        }
         const name = create("button", value(row.lora_name), "ghost-button");
         name.onclick = () => show(row);
         line.insertCell().append(name);
@@ -363,6 +370,77 @@
     previous.onclick = () => { state.page--; render(); };
     next.onclick = () => { state.page++; render(); };
     render();
+  }
+
+  async function confirmDeletion(root, detail, row, api) {
+    const dialog = create("dialog", "", "lora-catalog-dialog lora-delete-dialog");
+    const title = create("h3", words("Delete LoRA permanently?", "永久删除 LoRA？"));
+    dialog.setAttribute("aria-label", title.textContent);
+    const name = create("p", value(row.lora_name));
+    const summary = create("p", words("Checking files…", "正在核对文件…"), "section-copy");
+    summary.setAttribute("role", "status");
+    const cancel = create("button", words("Cancel", "取消"), "ghost-button");
+    cancel.autofocus = true;
+    cancel.onclick = () => dialog.close();
+    const remove = create("button", words("Delete permanently", "永久删除"), "ghost-button lora-danger-action");
+    remove.disabled = true;
+    const actions = create("div", "", "lora-delete-actions");
+    actions.append(cancel, remove);
+    dialog.append(title, name, summary, actions);
+    dialog.onclose = () => dialog.remove();
+    root.append(dialog);
+    dialog.showModal();
+    cancel.focus();
+
+    const post = (action, fields) => api("/api/plugins/lora/delete/" + action, {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({id: row.id, ...fields}),
+    });
+
+    try {
+      const plan = await post("preview");
+      if (!dialog.open) return;
+      summary.textContent = words(
+        `${plan.notes} Markdown note, ${plan.previews} previews, ${plan.thumbnails} thumbnails. This cannot be undone.`,
+        `${plan.notes} 个 Markdown 笔记、${plan.previews} 张预览图、${plan.thumbnails} 张缩略图。删除后无法恢复。`);
+      if (plan.kept_previews || plan.kept_thumbnails) {
+        const retained = create("p", words(
+          `Keeping ${plan.kept_previews} shared previews and ${plan.kept_thumbnails} thumbnails whose ownership is uncertain.`,
+          `保留 ${plan.kept_previews} 张共享预览图，以及 ${plan.kept_thumbnails} 张归属不明确的缩略图。`), "section-copy");
+        actions.before(retained);
+      }
+      remove.disabled = false;
+      let deleting = false;
+      dialog.addEventListener("cancel", (event) => { if (deleting) event.preventDefault(); });
+      remove.onclick = async () => {
+        deleting = true;
+        cancel.disabled = remove.disabled = true;
+        summary.textContent = words("Deleting…", "正在删除…");
+        let result;
+        try {
+          result = await post("commit", {token: plan.token});
+        } catch (error) {
+          summary.textContent = error.message;
+          deleting = false;
+          cancel.disabled = false;
+          return;
+        }
+        dialog.close();
+        detail.close();
+        const message = create("p", "", "section-copy");
+        message.setAttribute("role", "status");
+        try {
+          await window.EverSparkLoraCatalog.mount(root, api);
+          message.textContent = words("LoRA deleted.", "LoRA 已删除。");
+        } catch (_) {
+          message.textContent = words("LoRA deleted. Reopen the panel to refresh.", "LoRA 已删除，重新打开面板以刷新列表。");
+        }
+        if (result.remaining.length) message.textContent += " " + words(
+          "Could not permanently remove: ", "以下文件未能永久清除：") + result.remaining.join(" · ");
+        root.prepend(message);
+      };
+    } catch (error) {
+      summary.textContent = error.message;
+    }
   }
 
   function showImport(root, api, categories) {
@@ -529,8 +607,8 @@
 
   window.EverSparkLoraCatalog = {
     async mount(root, api) {
-      const {items, can_import: canImport} = await api("/api/plugins/lora/catalog");
-      mount(root, items, api, canImport);
+      const {items, can_import: canImport, can_delete: canDelete} = await api("/api/plugins/lora/catalog");
+      mount(root, items, api, canImport, canDelete);
     },
   };
 })();

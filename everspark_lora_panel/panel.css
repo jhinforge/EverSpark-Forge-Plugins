@@ -69,3 +69,11 @@ button.lora-catalog-stat:is(:hover, [aria-pressed="true"]) { border-color: var(-
 .lora-catalog-import-previews label { display: grid; justify-items: center; gap: .2rem; }
 .lora-catalog-import-previews img { width: 86px; height: 86px; margin: 0; object-fit: contain; }
 @media (max-width: 540px) { .lora-catalog-import-fields { grid-template-columns: 1fr; } }
+.lora-detail-actions, .lora-delete-actions { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; }
+.lora-detail-actions .lora-detail-menu { position: relative; margin: 0; }
+.lora-detail-menu summary { cursor: pointer; list-style: none; }
+.lora-detail-menu summary::-webkit-details-marker { display: none; }
+.lora-detail-menu > button { position: absolute; z-index: 1; right: 0; top: calc(100% + .35rem); white-space: nowrap; background: #171b23; }
+.lora-danger-action { color: #ff9393; border-color: #a84e56; }
+.lora-delete-dialog { width: min(28rem, calc(100% - 2rem)); }
+.lora-delete-actions { margin-top: 1rem; }

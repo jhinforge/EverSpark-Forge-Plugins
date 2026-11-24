@@ -197,15 +197,18 @@ class MediaLookup:
     def note_stems(self):
         return Counter(legacy_stem(path.name).casefold() for path in self.notes.rglob("*.md"))
 
-    def thumbnail(self, path):
-        # Exact hashes take precedence over a filename-only match.
+    def thumbnail_keys(self, path):
         roots = dict.fromkeys((self.vault, self.notes, self.notes.parent))
         names = []
         for root in roots:
             if root is not None and path.is_relative_to(root):
                 relative = path.relative_to(root).as_posix()
                 names.extend((thumb_cache_name_from_md_path(relative), vault_thumb_name(relative)))
-        for name in dict.fromkeys(names):
+        return list(dict.fromkeys(names))
+
+    def thumbnail(self, path):
+        names = self.thumbnail_keys(path)
+        for name in names:
             match = self._find((
                 self.thumbnails / name,
                 self.thumbnails / "lora_thumb_cache" / name,
