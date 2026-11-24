@@ -1,12 +1,12 @@
 # EverSpark Forge Plugins
 
-[EverSpark Forge](https://github.com/jhinforge/EverSpark-Forge) 的独立插件仓库。插件计划通过 GitHub Releases 单独分发，用户可按需在 EverSpark Forge 客户端中下载。
+[EverSpark Forge](https://github.com/jhinforge/EverSpark-Forge) 的独立插件仓库。在 EverSpark Forge 客户端的「设置 → 插件」中可以下载和更新绘图模型管理插件。
 
 ## 插件
 
 | 插件 | 用途 | 状态 |
 | --- | --- | --- |
-| LoRA 模型管理面板 | 将现有的 Obsidian LoRA 模型管理面板移植到 EverSpark Forge 客户端，用于浏览和管理 LoRA 模型。 | 计划中 |
+| 绘图模型管理 | 浏览 LoRA 和 Checkpoints 的笔记及预览图、重建缩略图和录入 LoRA。 | 可安装 |
 
 ## LoRA 脚本目录配置
 
@@ -25,7 +25,7 @@
 
 ## 在客户端录入 LoRA
 
-更新客户端源码和 LoRA 插件后，点面板右上角的「录入 LoRA」。可以手动填写并选择本地预览图，也可以从 Civitai 抓取资料、选择预览图再入库。Civitai 使用面板设置里保存的 API Key。已配置的笔记、原图、缩略图和临时目录会直接用于入库。
+安装绘图模型管理插件后，点面板右上角的「录入 LoRA」。可以手动填写并选择本地预览图，也可以从 Civitai 抓取资料、选择预览图再入库。Civitai 使用面板设置里保存的 API Key。已配置的笔记、原图、缩略图和临时目录会直接用于入库。
 
 ## Checkpoints 面板与缩略图重建
 
