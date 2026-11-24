@@ -20,7 +20,10 @@ MAX_TOTAL = 24 * 1024 * 1024
 FIELDS = ("lora_name", "lora_version", "download_url", "trigger_words", "category",
           "model_support", "effect", "notes")
 CIVITAI_HOSTS = {"civitai.com", "www.civitai.com", "civitai.red", "www.civitai.red"}
-IMAGE_HOSTS = {"image.civitai.com", "images.civitai.com", "imagecache.civitai.com"}
+IMAGE_HOSTS = {
+    "image.civitai.com", "images.civitai.com", "imagecache.civitai.com",
+    "image-b2.civitai.com", "image.civitai.red",
+}
 
 
 def remote_image(url):
@@ -35,7 +38,13 @@ class PreviewRedirect(HTTPRedirectHandler):
         try:
             remote_image(newurl)
         except ValueError as exc:
-            raise ValueError(f"预览图服务器返回 HTTP {code}，跳转目标不在支持的 Civitai 图片域名内。") from exc
+            try:
+                hostname = urlsplit(newurl).hostname
+            except ValueError:
+                hostname = None
+            if not hostname or not re.fullmatch(r"[a-z0-9.:-]{1,253}", hostname):
+                hostname = "未知"
+            raise ValueError(f"预览图服务器返回 HTTP {code}，不支持该跳转目标（主机：{hostname}）。") from exc
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 

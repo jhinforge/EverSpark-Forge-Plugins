@@ -56,12 +56,19 @@ class PanelImportTests(unittest.TestCase):
     def test_only_follows_supported_https_preview_redirects(self):
         handler = importer.PreviewRedirect()
         request = Request("https://image.civitai.com/original.png")
-        destination = "https://imagecache.civitai.com/new.png"
-        result = handler.redirect_request(request, None, 302, "Found", {}, destination)
-        self.assertEqual(result.full_url, destination)
+        for code, host in ((301, "image-b2.civitai.com"), (302, "imagecache.civitai.com"),
+                           (301, "image.civitai.red")):
+            with self.subTest(code=code, host=host):
+                destination = f"https://{host}/new.png"
+                self.assertEqual(importer.remote_image(destination), destination)
+                result = handler.redirect_request(request, None, code, "Redirect", {}, destination)
+                self.assertEqual(result.full_url, destination)
         for destination in ("http://image.civitai.com/new.png", "https://example.org/new.png"):
             with self.subTest(destination=destination), self.assertRaisesRegex(ValueError, "跳转目标"):
-                handler.redirect_request(request, None, 302, "Found", {}, destination)
+                handler.redirect_request(request, None, 301, "Moved", {}, destination)
+        with self.assertRaisesRegex(ValueError, "主机：example.org") as exc:
+            handler.redirect_request(request, None, 301, "Moved", {}, "https://user:secret@example.org/private?token=secret")
+        self.assertNotIn("secret", str(exc.exception))
 
     def test_preview_failure_reports_index_and_http_status_before_writing(self):
         url = "https://image.civitai.com/test.png"
