@@ -22,7 +22,7 @@ FIELDS = ("lora_name", "lora_version", "download_url", "trigger_words", "categor
 CIVITAI_HOSTS = {"civitai.com", "www.civitai.com", "civitai.red", "www.civitai.red"}
 IMAGE_HOSTS = {
     "image.civitai.com", "images.civitai.com", "imagecache.civitai.com",
-    "image-b2.civitai.com", "image.civitai.red",
+    "image-b2.civitai.com", "blobs-b2.civitai.com", "image.civitai.red",
 }
 
 

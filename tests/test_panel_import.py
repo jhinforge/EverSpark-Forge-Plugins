@@ -57,7 +57,7 @@ class PanelImportTests(unittest.TestCase):
         handler = importer.PreviewRedirect()
         request = Request("https://image.civitai.com/original.png")
         for code, host in ((301, "image-b2.civitai.com"), (302, "imagecache.civitai.com"),
-                           (301, "image.civitai.red")):
+                           (301, "image.civitai.red"), (301, "blobs-b2.civitai.com")):
             with self.subTest(code=code, host=host):
                 destination = f"https://{host}/new.png"
                 self.assertEqual(importer.remote_image(destination), destination)
