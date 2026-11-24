@@ -179,22 +179,25 @@
 
     function show(row) {
       hideHover();
-      const heading = create("div", "", "section-toolbar");
+      const heading = create("div", "", "section-toolbar lora-detail-heading");
       const close = create("button", words("Close", "关闭"), "ghost-button");
       close.onclick = () => detail.close();
       const actions = create("div", "", "lora-detail-actions");
+      const menu = create("details", "", "lora-detail-menu");
+      const trigger = create("summary", words("More actions ⋯", "更多操作 ⋯"), "ghost-button");
+      menu.append(trigger);
       if (canDelete) {
-        const menu = create("details", "", "lora-detail-menu");
-        const trigger = create("summary", "⋯", "ghost-button");
-        trigger.setAttribute("aria-label", words("More actions", "更多操作"));
-        const remove = create("button", words("Delete permanently…", "永久删除…"), "ghost-button lora-danger-action");
+        const remove = create("button", words("Delete permanently…", "永久删除…"), "ghost-button lora-danger-action lora-detail-menu-item");
         remove.onclick = () => {
           menu.open = false;
           void confirmDeletion(root, detail, row, api);
         };
-        menu.append(trigger, remove);
-        actions.append(menu);
+        menu.append(remove);
+      } else {
+        menu.append(create("p", words("Update and restart the EverSpark Forge client to enable deletion.",
+          "更新并重启 EverSpark Forge 客户端后，即可使用永久删除。"), "lora-detail-menu-item"));
       }
+      actions.append(menu);
       actions.append(close);
       heading.append(create("h3", value(row.lora_name)), actions);
       const info = create("dl");

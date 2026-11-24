@@ -73,7 +73,25 @@ button.lora-catalog-stat:is(:hover, [aria-pressed="true"]) { border-color: var(-
 .lora-detail-actions .lora-detail-menu { position: relative; margin: 0; }
 .lora-detail-menu summary { cursor: pointer; list-style: none; }
 .lora-detail-menu summary::-webkit-details-marker { display: none; }
-.lora-detail-menu > button { position: absolute; z-index: 1; right: 0; top: calc(100% + .35rem); white-space: nowrap; background: #171b23; }
+.lora-catalog-dialog .lora-detail-heading { flex-direction: row; align-items: flex-start; }
+.lora-detail-heading h3 { min-width: 0; overflow-wrap: anywhere; }
+.lora-detail-heading .lora-detail-actions { flex-shrink: 0; white-space: nowrap; margin-inline-start: auto; }
+.lora-detail-menu > .lora-detail-menu-item {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  top: calc(100% + .35rem);
+  background: #171b23;
+}
+.lora-detail-menu > button { white-space: nowrap; }
+.lora-detail-menu > p {
+  width: min(15rem, calc(100vw - 4rem));
+  margin: 0;
+  padding: .65rem;
+  white-space: normal;
+  border: 1px solid var(--line, #343b45);
+  border-radius: .5rem;
+}
 .lora-danger-action { color: #ff9393; border-color: #a84e56; }
 .lora-delete-dialog { width: min(28rem, calc(100% - 2rem)); }
 .lora-delete-actions { margin-top: 1rem; }
